@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config';
 
 const app = express();
@@ -98,6 +98,40 @@ app.get("/menu", async (req, res) => {
     });
   }
 });
+
+
+app.get("/menu/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        message: "Invalid menu item ID",
+      });
+    }
+
+    const item = await menuItems.findOne({
+      _id: new ObjectId(id),
+      status: "approved",
+      isActive: true,
+    });
+
+    if (!item) {
+      return res.status(404).send({
+        message: "Menu item not found or currently unavailable",
+      });
+    }
+
+    res.send(item);
+  } catch (error) {
+    console.error("Failed to fetch menu item:", error);
+
+    res.status(500).send({
+      message: "Failed to fetch menu item",
+    });
+  }
+});
+
 
 app.listen(port, () => {
   console.log(`PizzaHub server is running on port ${port}`);
