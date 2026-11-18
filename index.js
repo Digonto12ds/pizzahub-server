@@ -27,6 +27,8 @@ const connectedClient = await connectToMongoDB();
 const database = connectedClient.db('pizzahubDB');
 const menuItems = database.collection("menuItems");
 const users = database.collection("user");
+const sessions = database.collection("session"); 
+const orders = database.collection("orders");
 
 const escapeRegex = (value) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -34,6 +36,90 @@ const escapeRegex = (value) =>
 app.get("/", (req, res) => {
   res.send("PizzaHub server is running!");
 });
+
+const verifyToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).send({
+        message: "Unauthorized. Please sign in.",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).send({
+        message: "Unauthorized.",
+      });
+    }
+
+    const session = await sessions.findOne({ token });
+
+    if (!session) {
+      return res.status(401).send({
+        message: "Invalid session. Please sign in again.",
+      });
+    }
+
+    const expiresAt = new Date(session.expiresAt).getTime();
+
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      return res.status(401).send({
+        message: "Session expired. Please sign in again.",
+      });
+    }
+
+    const userId = String(session.userId);
+
+    const userConditions = [{ _id: userId }];
+
+    if (ObjectId.isValid(userId)) {
+      userConditions.push({
+        _id: new ObjectId(userId),
+      });
+    }
+
+    const user = await users.findOne({
+      $or: userConditions,
+    });
+
+    if (!user) {
+      return res.status(401).send({
+        message: "User not found.",
+      });
+    }
+
+    if (user.isBlocked) {
+      return res.status(403).send({
+        message: "Your account has been blocked.",
+      });
+    }
+
+    req.user = user;
+
+    next();
+  } catch (error) {
+    console.error("Token verification failed:", error);
+
+    res.status(500).send({
+      message: "Authentication failed.",
+    });
+  }
+};
+
+
+const verifyVendor = (req, res, next) => {
+  if (req.user.role !== "vendor") {
+    return res.status(403).send({
+      message: "Forbidden. Vendor access only.",
+    });
+  }
+
+  next();
+};
+
 
 app.get("/menu/featured", async (req, res) => {
   try {
@@ -132,6 +218,54 @@ app.get("/menu/:id", async (req, res) => {
   }
 });
 
+
+app.get("/api/vendor/overview", verifyToken, verifyVendor, async (req, res) => {
+  try {
+
+    const vendorMenuItems = database.collection("menuItems");
+    const vendorOrders = database.collection("orders");
+
+
+    const vendorId = String(req.user._id);
+
+
+    const totalMenuItems = await vendorMenuItems.countDocuments({
+      vendorId,
+    });
+
+    const activeMenuItems = await vendorMenuItems.countDocuments({
+      vendorId,
+      isActive: true,
+    });
+
+    const pendingOrders = await vendorOrders.countDocuments({
+      vendorId,
+      status: "pending",
+    });
+
+    const acceptedOrders = await vendorOrders.countDocuments({
+      vendorId,
+      status: "accepted",
+    });
+
+    const subscriptionPlan = req.user.subscriptionPlan || "free";
+
+    res.send({
+      totalMenuItems,
+      activeMenuItems,
+      pendingOrders,
+      acceptedOrders,
+      subscriptionPlan,
+    });
+
+  } catch (error) {
+    console.error("Failed to load vendor overview:", error);
+
+    res.status(500).send({
+      message: "Failed to load vendor dashboard overview.",
+    });
+  }
+});
 
 app.listen(port, () => {
   console.log(`PizzaHub server is running on port ${port}`);
