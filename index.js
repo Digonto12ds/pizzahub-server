@@ -544,7 +544,89 @@ app.patch(
 );
 
 
+//Manage availability
+app.patch(
+  "/api/vendor/menu-items/:id/availability",
+  verifyToken,
+  verifyVendor,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { isActive } = req.body;
 
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          message: "Invalid menu item ID.",
+        });
+      }
+
+      if (typeof isActive !== "boolean") {
+        return res.status(400).send({
+          message: "isActive must be true or false.",
+        });
+      }
+
+      const vendorId = String(req.user._id);
+
+      const item = await menuItems.findOne({
+        _id: new ObjectId(id),
+        vendorId,
+      });
+
+      if (!item) {
+        return res.status(404).send({
+          message: "Menu item not found.",
+        });
+      }
+
+      const plan = (
+        req.user.subscriptionPlan || "free"
+      ).toLowerCase();
+
+      if (isActive && !item.isActive && plan !== "premium") {
+        const activeCount = await menuItems.countDocuments({
+          vendorId,
+          isActive: true,
+        });
+
+        if (activeCount >= 3) {
+          return res.status(403).send({
+            message: "Free plan allows only 3 active menu items. Upgrade to Premium to activate more.",
+          });
+        }
+      }
+
+      await menuItems.updateOne(
+        {
+          _id: new ObjectId(id),
+          vendorId,
+        },
+        {
+          $set: {
+            isActive,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      res.send({
+        success: true,
+        message: isActive
+          ? "Menu item activated."
+          : "Menu item deactivated.",
+      });
+
+    } catch (error) {
+      console.error("Failed to update availability:", error);
+
+      res.status(500).send({
+        message: "Failed to update item availability.",
+      });
+    }
+  }
+);
+
+// vendor dashboard overview
 app.get("/api/vendor/overview", verifyToken, verifyVendor, async (req, res) => {
   try {
 
