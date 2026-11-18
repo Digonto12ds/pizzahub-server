@@ -239,7 +239,7 @@ app.get("/menu/:id", async (req, res) => {
   }
 });
 
-
+// vendor-----------------------------------------------------
 app.post(
   "/api/vendor/menu-items",
   verifyToken,
@@ -383,6 +383,31 @@ app.post(
     }
   }
 );
+
+app.get(
+  "/api/vendor/menu-items",
+  verifyToken,
+  verifyVendor,
+  async (req, res) => {
+    try {
+      const vendorId = String(req.user._id);
+
+      const result = await menuItems
+        .find({ vendorId })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send(result);
+    } catch (error) {
+      console.error("Failed to fetch vendor menu items:", error);
+
+      res.status(500).send({
+        message: "Failed to load your menu items.",
+      });
+    }
+  }
+);
+
 
 
 app.get("/api/vendor/overview", verifyToken, verifyVendor, async (req, res) => {
