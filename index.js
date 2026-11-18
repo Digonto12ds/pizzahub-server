@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
+import multer from 'multer';
 import 'dotenv/config';
 
 const app = express();
@@ -9,6 +10,26 @@ const port = process.env.PORT || 5000;
 //middleware
 app.use(cors());
 app.use(express.json());
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // Maximum 5 MB
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+
+    if (!allowedTypes.includes(file.mimetype)) {
+      return cb(new Error("Only JPG, PNG and WEBP images are allowed."));
+    }
+
+    cb(null, true);
+  },
+});
 
 const client = new MongoClient(`mongodb://${process.env.DB_USER}:${process.env.DB_PASSWORD}@ac-hdfbn7t-shard-00-00.lhdjbcn.mongodb.net:27017,ac-hdfbn7t-shard-00-01.lhdjbcn.mongodb.net:27017,ac-hdfbn7t-shard-00-02.lhdjbcn.mongodb.net:27017/?ssl=true&replicaSet=atlas-63srn5-shard-0&authSource=admin`);
 
@@ -217,6 +238,151 @@ app.get("/menu/:id", async (req, res) => {
     });
   }
 });
+
+
+app.post(
+  "/api/vendor/menu-items",
+  verifyToken,
+  verifyVendor,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const {
+        itemName,
+        category,
+        description,
+        price,
+        location,
+      } = req.body;
+
+      
+      if (
+        !itemName?.trim() ||
+        !category?.trim() ||
+        !description?.trim() ||
+        !price ||
+        !location?.trim()
+      ) {
+        return res.status(400).send({
+          message: "All fields are required.",
+        });
+      }
+
+    
+      const parsedPrice = Number(price);
+
+      if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+        return res.status(400).send({
+          message: "Please enter a valid price.",
+        });
+      }
+
+      
+      if (!req.file) {
+        return res.status(400).send({
+          message: "Menu item image is required.",
+        });
+      }
+
+      
+      const vendorId = String(req.user._id);
+      const subscriptionPlan = (
+        req.user.subscriptionPlan || "free"
+      ).toLowerCase();
+
+      
+      if (subscriptionPlan !== "premium") {
+        const activeItemCount = await menuItems.countDocuments({
+          vendorId,
+          isActive: true,
+        });
+
+        if (activeItemCount >= 3) {
+          return res.status(403).send({
+            message:
+              "Free plan allows a maximum of 3 active menu items. Upgrade to Premium for unlimited items.",
+          });
+        }
+      }
+
+      if (!process.env.IMGBB_API_KEY) {
+        return res.status(500).send({
+          message: "ImgBB API key is not configured.",
+        });
+      }
+
+      const imageBase64 = req.file.buffer.toString("base64");
+
+      const formData = new URLSearchParams();
+      formData.append("image", imageBase64);
+      formData.append("name", itemName.trim());
+
+      const imageResponse = await fetch(
+        `https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API_KEY}`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const imageResult = await imageResponse.json();
+
+      if (!imageResponse.ok || !imageResult.success) {
+        console.error("ImgBB upload failed:", imageResult);
+
+        return res.status(500).send({
+          message: "Failed to upload menu item image.",
+        });
+      }
+
+      const imageUrl = imageResult.data.url;
+
+      const newMenuItem = {
+        itemName: itemName.trim(),
+        category: category.trim(),
+        description: description.trim(),
+        price: parsedPrice,
+        location: location.trim(),
+
+        images: [imageUrl],
+
+        vendorId,
+
+        vendor: {
+          name: req.user.name || "",
+          businessName: req.user.businessName || "",
+          image: req.user.image || "",
+        },
+
+        status: "pending",
+        isActive: true,
+
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      
+      const result = await menuItems.insertOne(newMenuItem);
+
+      res.status(201).send({
+        success: true,
+        message: "Menu item submitted for admin approval.",
+        insertedId: result.insertedId,
+        item: {
+          ...newMenuItem,
+          _id: result.insertedId,
+        },
+      });
+
+    } catch (error) {
+      console.error("Failed to add menu item:", error);
+
+      res.status(500).send({
+        message: "Failed to add menu item.",
+      });
+    }
+  }
+);
 
 
 app.get("/api/vendor/overview", verifyToken, verifyVendor, async (req, res) => {
