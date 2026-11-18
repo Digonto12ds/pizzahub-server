@@ -25,11 +25,36 @@ export async function connectToMongoDB() {
 
 const connectedClient = await connectToMongoDB();
 const database = connectedClient.db('pizzahubDB');
+const menuItems = database.collection("menuItems");
+const users = database.collection("user");
 
-app.get('/', (req, res) => {
-  res.send('Hello World!');
+app.get("/", (req, res) => {
+  res.send("PizzaHub server is running!");
+});
+
+app.get("/menu/featured", async (req, res) => {
+  try {
+    const result = await menuItems
+      .find({
+        status: "approved",
+        isActive: true,
+      })
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .toArray();
+
+    res.send(result);
+  } catch (error) {
+    console.error("Failed to get featured menu items:", error);
+
+    res.status(500).send({
+      message: "Failed to load featured menu items",
+    });
+  }
 });
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
+  console.log(`PizzaHub server is running on port ${port}`);
 });
+
+export default app;
