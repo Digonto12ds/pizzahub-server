@@ -384,6 +384,7 @@ app.post(
   }
 );
 
+// Get only the logged-in vendor's items
 app.get(
   "/api/vendor/menu-items",
   verifyToken,
@@ -403,6 +404,140 @@ app.get(
 
       res.status(500).send({
         message: "Failed to load your menu items.",
+      });
+    }
+  }
+);
+
+// Update a menu item
+app.patch(
+  "/api/vendor/menu-items/:id",
+  verifyToken,
+  verifyVendor,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          message: "Invalid menu item ID.",
+        });
+      }
+
+      const vendorId = String(req.user._id);
+
+      const existingItem = await menuItems.findOne({
+        _id: new ObjectId(id),
+        vendorId,
+      });
+
+      if (!existingItem) {
+        return res.status(404).send({
+          message: "Menu item not found.",
+        });
+      }
+
+      const {
+        itemName,
+        category,
+        description,
+        price,
+        location,
+      } = req.body;
+
+
+      if (
+        !itemName?.trim() ||
+        !category?.trim() ||
+        !description?.trim() ||
+        !price ||
+        !location?.trim()
+      ) {
+        return res.status(400).send({
+          message: "All fields are required.",
+        });
+      }
+
+      const parsedPrice = Number(price);
+
+      if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+        return res.status(400).send({
+          message: "Please enter a valid price.",
+        });
+      }
+
+      
+      let images = existingItem.images || [];
+
+      if (req.file) {
+        if (!process.env.IMGBB_API_KEY) {
+          return res.status(500).send({
+            message: "ImgBB API key is not configured.",
+          });
+        }
+
+        const imageBase64 = req.file.buffer.toString("base64");
+
+        const formData = new URLSearchParams();
+        formData.append("image", imageBase64);
+        formData.append("name", itemName.trim());
+
+        const imageResponse = await fetch(
+          `https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API_KEY}`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        const imageResult = await imageResponse.json();
+
+        if (!imageResponse.ok || !imageResult.success) {
+          return res.status(500).send({
+            message: "Failed to upload the new image.",
+          });
+        }
+
+        images = [imageResult.data.url];
+      }
+
+     
+      const updatedItem = {
+        itemName: itemName.trim(),
+        category: category.trim(),
+        description: description.trim(),
+        price: parsedPrice,
+        location: location.trim(),
+        images,
+
+       
+        status: "pending",
+
+        updatedAt: new Date(),
+      };
+
+      const result = await menuItems.updateOne(
+        {
+          _id: new ObjectId(id),
+          vendorId,
+        },
+        {
+          $set: updatedItem,
+        }
+      );
+
+      res.send({
+        success: true,
+        message: "Menu item updated and submitted for admin approval.",
+        modifiedCount: result.modifiedCount,
+      });
+
+    } catch (error) {
+      console.error("Failed to update menu item:", error);
+
+      res.status(500).send({
+        message: "Failed to update menu item.",
       });
     }
   }
