@@ -28,6 +28,9 @@ const database = connectedClient.db('pizzahubDB');
 const menuItems = database.collection("menuItems");
 const users = database.collection("user");
 
+const escapeRegex = (value) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 app.get("/", (req, res) => {
   res.send("PizzaHub server is running!");
 });
@@ -49,6 +52,49 @@ app.get("/menu/featured", async (req, res) => {
 
     res.status(500).send({
       message: "Failed to load featured menu items",
+    });
+  }
+});
+
+app.get("/menu", async (req, res) => {
+
+  try {
+    const { search, category, location } = req.query;
+
+    const query = {
+      status: "approved",
+      isActive: true,
+    };
+
+    if (search) {
+      query.itemName = {
+        $regex: escapeRegex(search),
+        $options: "i",
+      };
+    }
+
+    if (category && category !== "all") {
+      query.category = category;
+    }
+
+    if (location) {
+      query.location = {
+        $regex: escapeRegex(location),
+        $options: "i",
+      };
+    }
+
+    const result = await menuItems
+      .find(query)
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.send(result);
+  } catch (error) {
+    console.error("Failed to fetch menu items:", error);
+
+    res.status(500).send({
+      message: "Failed to fetch menu items",
     });
   }
 });
