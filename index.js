@@ -136,6 +136,103 @@ const verifyVendor = (req, res, next) => {
   next();
 };
 
+const verifyCustomer = (req, res, next) => {
+  if (req.user.role !== "customer") {
+    return res.status(403).send({
+      message: "Forbidden. Customer access only.",
+    });
+  }
+
+  next();
+};
+
+const toObjectId = (id) => {
+  if (!id) return null;
+
+  const value = String(id);
+
+  if (ObjectId.isValid(value) && value.length === 24) {
+    return new ObjectId(value);
+  }
+
+  return null;
+};
+
+const findDocumentById = async (collection, id) => {
+  if (!id) return null;
+
+  const stringId = String(id);
+  const objectId = toObjectId(stringId);
+
+  const conditions = [{ _id: stringId }];
+
+  if (objectId) {
+    conditions.push({ _id: objectId });
+  }
+
+  return collection.findOne({ $or: conditions });
+};
+
+const getCustomerOrderFilter = (customerId) => {
+  const stringId = String(customerId);
+  const objectId = toObjectId(stringId);
+
+  const conditions = [{ customerId: stringId }];
+
+  if (objectId) {
+    conditions.push({ customerId: objectId });
+  }
+
+  return { $or: conditions };
+};
+
+const normalizeOrderStatus = (status) => {
+  return String(status || "pending").toLowerCase();
+};
+
+const populateCustomerOrder = async (order) => {
+  const itemId = order.itemId || order.menuItemId;
+  const vendorId = order.vendorId;
+
+  const [item, vendor] = await Promise.all([
+    findDocumentById(menuItems, itemId),
+    findDocumentById(users, vendorId),
+  ]);
+
+  return {
+    ...order,
+
+    _id: String(order._id),
+
+    status: normalizeOrderStatus(order.status),
+
+    item: item
+      ? {
+          _id: String(item._id),
+          name: item.name || item.title,
+          image: item.image,
+          price: item.price,
+          category: item.category,
+          description: item.description,
+        }
+      : order.item || null,
+
+    vendor: vendor
+      ? {
+          _id: String(vendor._id),
+          name: vendor.name,
+          businessName: vendor.businessName || "",
+          image: vendor.image || "",
+          email: vendor.email,
+        }
+      : order.vendor || null,
+
+    deliveryDate: order.deliveryDate || null,
+    deliveryAddress: order.deliveryAddress || "",
+    requestDate: order.createdAt || null,
+  };
+};
+
 app.get("/menu/featured", async (req, res) => {
   try {
     const result = await menuItems
@@ -753,7 +850,6 @@ app.patch(
 
       const vendorId = String(req.user._id);
 
-      
       const result = await orders.updateOne(
         {
           _id: new ObjectId(id),
@@ -786,6 +882,54 @@ app.patch(
       });
     }
   },
+);
+
+// CUSTOMER DASHBOARD APIs---------------------------------------------------------------
+
+//overview api
+app.get(
+  "/api/customer/overview",
+  verifyToken,
+  verifyCustomer,
+  async (req, res) => {
+    try {
+      const customerId = String(req.user._id);
+
+      const customerFilter = getCustomerOrderFilter(customerId);
+
+      const customerOrders = await orders
+        .find(customerFilter)
+        .toArray();
+
+      const overview = {
+        totalOrders: customerOrders.length,
+
+        pendingOrders: customerOrders.filter(
+          (order) => normalizeOrderStatus(order.status) === "pending"
+        ).length,
+
+        acceptedOrders: customerOrders.filter(
+          (order) => normalizeOrderStatus(order.status) === "accepted"
+        ).length,
+
+        rejectedOrders: customerOrders.filter(
+          (order) => normalizeOrderStatus(order.status) === "rejected"
+        ).length,
+      };
+
+      res.send({
+        success: true,
+        data: overview,
+      });
+    } catch (error) {
+      console.error("Customer overview error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to load customer overview.",
+      });
+    }
+  }
 );
 
 app.listen(port, () => {
