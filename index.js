@@ -1,8 +1,8 @@
-import express from 'express';
-import cors from 'cors';
-import { MongoClient, ObjectId } from 'mongodb';
-import multer from 'multer';
-import 'dotenv/config';
+import express from "express";
+import cors from "cors";
+import { MongoClient, ObjectId } from "mongodb";
+import multer from "multer";
+import "dotenv/config";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -17,11 +17,7 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // Maximum 5 MB
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-    ];
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 
     if (!allowedTypes.includes(file.mimetype)) {
       return cb(new Error("Only JPG, PNG and WEBP images are allowed."));
@@ -31,8 +27,9 @@ const upload = multer({
   },
 });
 
-const client = new MongoClient(`mongodb://${process.env.DB_USER}:${process.env.DB_PASSWORD}@ac-hdfbn7t-shard-00-00.lhdjbcn.mongodb.net:27017,ac-hdfbn7t-shard-00-01.lhdjbcn.mongodb.net:27017,ac-hdfbn7t-shard-00-02.lhdjbcn.mongodb.net:27017/?ssl=true&replicaSet=atlas-63srn5-shard-0&authSource=admin`);
-
+const client = new MongoClient(
+  `mongodb://${process.env.DB_USER}:${process.env.DB_PASSWORD}@ac-hdfbn7t-shard-00-00.lhdjbcn.mongodb.net:27017,ac-hdfbn7t-shard-00-01.lhdjbcn.mongodb.net:27017,ac-hdfbn7t-shard-00-02.lhdjbcn.mongodb.net:27017/?ssl=true&replicaSet=atlas-63srn5-shard-0&authSource=admin`,
+);
 
 export async function connectToMongoDB() {
   try {
@@ -45,14 +42,13 @@ export async function connectToMongoDB() {
 }
 
 const connectedClient = await connectToMongoDB();
-const database = connectedClient.db('pizzahubDB');
+const database = connectedClient.db("pizzahubDB");
 const menuItems = database.collection("menuItems");
 const users = database.collection("user");
-const sessions = database.collection("session"); 
+const sessions = database.collection("session");
 const orders = database.collection("orders");
 
-const escapeRegex = (value) =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 app.get("/", (req, res) => {
   res.send("PizzaHub server is running!");
@@ -130,7 +126,6 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-
 const verifyVendor = (req, res, next) => {
   if (req.user.role !== "vendor") {
     return res.status(403).send({
@@ -140,7 +135,6 @@ const verifyVendor = (req, res, next) => {
 
   next();
 };
-
 
 app.get("/menu/featured", async (req, res) => {
   try {
@@ -164,7 +158,6 @@ app.get("/menu/featured", async (req, res) => {
 });
 
 app.get("/menu", async (req, res) => {
-
   try {
     const { search, category, location } = req.query;
 
@@ -206,7 +199,6 @@ app.get("/menu", async (req, res) => {
   }
 });
 
-
 app.get("/menu/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -247,15 +239,8 @@ app.post(
   upload.single("image"),
   async (req, res) => {
     try {
-      const {
-        itemName,
-        category,
-        description,
-        price,
-        location,
-      } = req.body;
+      const { itemName, category, description, price, location } = req.body;
 
-      
       if (
         !itemName?.trim() ||
         !category?.trim() ||
@@ -268,7 +253,6 @@ app.post(
         });
       }
 
-    
       const parsedPrice = Number(price);
 
       if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
@@ -277,20 +261,17 @@ app.post(
         });
       }
 
-      
       if (!req.file) {
         return res.status(400).send({
           message: "Menu item image is required.",
         });
       }
 
-      
       const vendorId = String(req.user._id);
       const subscriptionPlan = (
         req.user.subscriptionPlan || "free"
       ).toLowerCase();
 
-      
       if (subscriptionPlan !== "premium") {
         const activeItemCount = await menuItems.countDocuments({
           vendorId,
@@ -322,7 +303,7 @@ app.post(
         {
           method: "POST",
           body: formData,
-        }
+        },
       );
 
       const imageResult = await imageResponse.json();
@@ -361,7 +342,6 @@ app.post(
         updatedAt: new Date(),
       };
 
-      
       const result = await menuItems.insertOne(newMenuItem);
 
       res.status(201).send({
@@ -373,7 +353,6 @@ app.post(
           _id: result.insertedId,
         },
       });
-
     } catch (error) {
       console.error("Failed to add menu item:", error);
 
@@ -381,7 +360,7 @@ app.post(
         message: "Failed to add menu item.",
       });
     }
-  }
+  },
 );
 
 // Get only the logged-in vendor's items
@@ -406,7 +385,7 @@ app.get(
         message: "Failed to load your menu items.",
       });
     }
-  }
+  },
 );
 
 // Update a menu item
@@ -438,14 +417,7 @@ app.patch(
         });
       }
 
-      const {
-        itemName,
-        category,
-        description,
-        price,
-        location,
-      } = req.body;
-
+      const { itemName, category, description, price, location } = req.body;
 
       if (
         !itemName?.trim() ||
@@ -467,7 +439,6 @@ app.patch(
         });
       }
 
-      
       let images = existingItem.images || [];
 
       if (req.file) {
@@ -488,7 +459,7 @@ app.patch(
           {
             method: "POST",
             body: formData,
-          }
+          },
         );
 
         const imageResult = await imageResponse.json();
@@ -502,7 +473,6 @@ app.patch(
         images = [imageResult.data.url];
       }
 
-     
       const updatedItem = {
         itemName: itemName.trim(),
         category: category.trim(),
@@ -511,7 +481,6 @@ app.patch(
         location: location.trim(),
         images,
 
-       
         status: "pending",
 
         updatedAt: new Date(),
@@ -524,7 +493,7 @@ app.patch(
         },
         {
           $set: updatedItem,
-        }
+        },
       );
 
       res.send({
@@ -532,7 +501,6 @@ app.patch(
         message: "Menu item updated and submitted for admin approval.",
         modifiedCount: result.modifiedCount,
       });
-
     } catch (error) {
       console.error("Failed to update menu item:", error);
 
@@ -540,9 +508,8 @@ app.patch(
         message: "Failed to update menu item.",
       });
     }
-  }
+  },
 );
-
 
 //Manage availability
 app.patch(
@@ -579,9 +546,7 @@ app.patch(
         });
       }
 
-      const plan = (
-        req.user.subscriptionPlan || "free"
-      ).toLowerCase();
+      const plan = (req.user.subscriptionPlan || "free").toLowerCase();
 
       if (isActive && !item.isActive && plan !== "premium") {
         const activeCount = await menuItems.countDocuments({
@@ -591,7 +556,8 @@ app.patch(
 
         if (activeCount >= 3) {
           return res.status(403).send({
-            message: "Free plan allows only 3 active menu items. Upgrade to Premium to activate more.",
+            message:
+              "Free plan allows only 3 active menu items. Upgrade to Premium to activate more.",
           });
         }
       }
@@ -606,16 +572,13 @@ app.patch(
             isActive,
             updatedAt: new Date(),
           },
-        }
+        },
       );
 
       res.send({
         success: true,
-        message: isActive
-          ? "Menu item activated."
-          : "Menu item deactivated.",
+        message: isActive ? "Menu item activated." : "Menu item deactivated.",
       });
-
     } catch (error) {
       console.error("Failed to update availability:", error);
 
@@ -623,9 +586,8 @@ app.patch(
         message: "Failed to update item availability.",
       });
     }
-  }
+  },
 );
-
 
 // Delete a menu item
 app.delete(
@@ -659,7 +621,6 @@ app.delete(
         success: true,
         message: "Menu item deleted successfully.",
       });
-
     } catch (error) {
       console.error("Failed to delete menu item:", error);
 
@@ -667,19 +628,16 @@ app.delete(
         message: "Failed to delete menu item.",
       });
     }
-  }
+  },
 );
 
 // vendor dashboard overview
 app.get("/api/vendor/overview", verifyToken, verifyVendor, async (req, res) => {
   try {
-
     const vendorMenuItems = database.collection("menuItems");
     const vendorOrders = database.collection("orders");
 
-
     const vendorId = String(req.user._id);
-
 
     const totalMenuItems = await vendorMenuItems.countDocuments({
       vendorId,
@@ -709,7 +667,6 @@ app.get("/api/vendor/overview", verifyToken, verifyVendor, async (req, res) => {
       acceptedOrders,
       subscriptionPlan,
     });
-
   } catch (error) {
     console.error("Failed to load vendor overview:", error);
 
@@ -720,62 +677,115 @@ app.get("/api/vendor/overview", verifyToken, verifyVendor, async (req, res) => {
 });
 
 //Get vendor orders
-app.get(
-  "/api/vendor/orders",
+app.get("/api/vendor/orders", verifyToken, verifyVendor, async (req, res) => {
+  try {
+    const vendorId = String(req.user._id);
+
+    const vendorOrders = await orders
+      .find({ vendorId })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const detailedOrders = await Promise.all(
+      vendorOrders.map(async (order) => {
+        const itemId = String(order.itemId);
+        const customerId = String(order.customerId);
+
+        const item = ObjectId.isValid(itemId)
+          ? await menuItems.findOne({ _id: new ObjectId(itemId) })
+          : await menuItems.findOne({ _id: itemId });
+
+        const customer = ObjectId.isValid(customerId)
+          ? await users.findOne({ _id: new ObjectId(customerId) })
+          : await users.findOne({ _id: customerId });
+
+        return {
+          ...order,
+          item: item
+            ? {
+                itemName: item.itemName,
+                images: item.images || [],
+                price: item.price,
+                category: item.category,
+              }
+            : null,
+          customer: customer
+            ? {
+                name: customer.name,
+                email: customer.email,
+                image: customer.image || "",
+              }
+            : null,
+        };
+      }),
+    );
+
+    res.send(detailedOrders);
+  } catch (error) {
+    console.error("Get vendor orders error:", error);
+    res.status(500).send({
+      message: "Failed to load customer orders.",
+    });
+  }
+});
+
+//Accept or Reject  vendor own order
+app.patch(
+  "/api/vendor/orders/:id/status",
   verifyToken,
   verifyVendor,
   async (req, res) => {
     try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          message: "Invalid order ID.",
+        });
+      }
+
+      if (!["Accepted", "Rejected"].includes(status)) {
+        return res.status(400).send({
+          message: "Invalid order status.",
+        });
+      }
+
       const vendorId = String(req.user._id);
 
-      const vendorOrders = await orders
-        .find({ vendorId })
-        .sort({ createdAt: -1 })
-        .toArray();
-
-      // Attach customer and menu item information
-      const detailedOrders = await Promise.all(
-        vendorOrders.map(async (order) => {
-          const itemId = String(order.itemId);
-          const customerId = String(order.customerId);
-
-          const item = ObjectId.isValid(itemId)
-            ? await menuItems.findOne({ _id: new ObjectId(itemId) })
-            : await menuItems.findOne({ _id: itemId });
-
-          const customer = ObjectId.isValid(customerId)
-            ? await users.findOne({ _id: new ObjectId(customerId) })
-            : await users.findOne({ _id: customerId });
-
-          return {
-            ...order,
-            item: item
-              ? {
-                  itemName: item.itemName,
-                  images: item.images || [],
-                  price: item.price,
-                  category: item.category,
-                }
-              : null,
-            customer: customer
-              ? {
-                  name: customer.name,
-                  email: customer.email,
-                  image: customer.image || "",
-                }
-              : null,
-          };
-        })
+      
+      const result = await orders.updateOne(
+        {
+          _id: new ObjectId(id),
+          vendorId,
+          status: { $in: ["Pending", "pending"] },
+        },
+        {
+          $set: {
+            status,
+            updatedAt: new Date(),
+          },
+        },
       );
 
-      res.send(detailedOrders);
+      if (result.matchedCount === 0) {
+        return res.status(404).send({
+          message:
+            "Order not found, does not belong to you, or has already been processed.",
+        });
+      }
+
+      res.send({
+        success: true,
+        message: `Order ${status.toLowerCase()} successfully.`,
+      });
     } catch (error) {
-      console.error("Get vendor orders error:", error);
+      console.error("Update order status error:", error);
       res.status(500).send({
-        message: "Failed to load customer orders.",
+        message: "Failed to update order status.",
       });
     }
-  }
+  },
 );
 
 app.listen(port, () => {
