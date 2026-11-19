@@ -13,7 +13,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 //middleware
 app.use(cors());
 
-
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -57,9 +56,8 @@ app.use(
   createStripeWebhookRouter({
     stripe,
     users,
-  })
+  }),
 );
-
 
 app.use(express.json());
 
@@ -175,115 +173,101 @@ const verifyAdmin = (req, res, next) => {
 //Admin-----------------------------------------------------
 
 //admin overview
-app.get(
-  "/api/admin/overview",
-  verifyToken,
-  verifyAdmin,
-  async (req, res) => {
-    try {
-      const [
+app.get("/api/admin/overview", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const [
+      totalUsers,
+      totalVendors,
+      totalCustomers,
+      totalMenuItems,
+      pendingMenuItems,
+      totalTransactions,
+    ] = await Promise.all([
+      users.countDocuments(),
+      users.countDocuments({ role: "vendor" }),
+      users.countDocuments({ role: "customer" }),
+      menuItems.countDocuments(),
+      menuItems.countDocuments({ status: "pending" }),
+      transactions.countDocuments(),
+    ]);
+
+    res.send({
+      success: true,
+      stats: {
         totalUsers,
         totalVendors,
         totalCustomers,
         totalMenuItems,
         pendingMenuItems,
         totalTransactions,
-      ] = await Promise.all([
-        users.countDocuments(),
-        users.countDocuments({ role: "vendor" }),
-        users.countDocuments({ role: "customer" }),
-        menuItems.countDocuments(),
-        menuItems.countDocuments({ status: "pending" }),
-        transactions.countDocuments(),
-      ]);
+      },
+    });
+  } catch (error) {
+    console.error("Admin overview error:", error);
 
-      res.send({
-        success: true,
-        stats: {
-          totalUsers,
-          totalVendors,
-          totalCustomers,
-          totalMenuItems,
-          pendingMenuItems,
-          totalTransactions,
-        },
-      });
-    } catch (error) {
-      console.error("Admin overview error:", error);
-
-      res.status(500).send({
-        success: false,
-        message: "Failed to load dashboard statistics.",
-      });
-    }
+    res.status(500).send({
+      success: false,
+      message: "Failed to load dashboard statistics.",
+    });
   }
-);
-
+});
 
 // Get all users
-app.get(
-  "/api/admin/users",
-  verifyToken,
-  verifyAdmin,
-  async (req, res) => {
-    try {
-      const { search = "", role = "all" } = req.query;
+app.get("/api/admin/users", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { search = "", role = "all" } = req.query;
 
-      const query = {};
+    const query = {};
 
-      // Search by name or email
-      if (search.trim()) {
-        const searchRegex = {
-          $regex: escapeRegex(search.trim()),
-          $options: "i",
-        };
+    // Search by name or email
+    if (search.trim()) {
+      const searchRegex = {
+        $regex: escapeRegex(search.trim()),
+        $options: "i",
+      };
 
-        query.$or = [
-          { name: searchRegex },
-          { email: searchRegex },
-        ];
-      }
-
-      // Filter by role
-      if (role !== "all") {
-        query.role = role;
-      }
-
-      const result = await users
-        .find(query, {
-          projection: {
-            name: 1,
-            email: 1,
-            image: 1,
-            role: 1,
-            isBlocked: 1,
-            businessName: 1,
-            subscriptionPlan: 1,
-            createdAt: 1,
-          },
-        })
-        .sort({ createdAt: -1 })
-        .toArray();
-
-      res.send({
-        success: true,
-        total: result.length,
-        users: result.map((user) => ({
-          ...user,
-          _id: String(user._id),
-          isBlocked: Boolean(user.isBlocked),
-        })),
-      });
-    } catch (error) {
-      console.error("Get users error:", error);
-
-      res.status(500).send({
-        success: false,
-        message: "Failed to load users.",
-      });
+      query.$or = [{ name: searchRegex }, { email: searchRegex }];
     }
+
+    // Filter by role
+    if (role !== "all") {
+      query.role = role;
+    }
+
+    const result = await users
+      .find(query, {
+        projection: {
+          name: 1,
+          email: 1,
+          image: 1,
+          role: 1,
+          isBlocked: 1,
+          businessName: 1,
+          subscriptionPlan: 1,
+          createdAt: 1,
+        },
+      })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.send({
+      success: true,
+      total: result.length,
+      users: result.map((user) => ({
+        ...user,
+        _id: String(user._id),
+        isBlocked: Boolean(user.isBlocked),
+      })),
+    });
+  } catch (error) {
+    console.error("Get users error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to load users.",
+    });
   }
-);
+});
 
 // Block or Unblock a user
 app.patch(
@@ -343,7 +327,7 @@ app.patch(
             isBlocked,
             updatedAt: new Date(),
           },
-        }
+        },
       );
 
       res.send({
@@ -360,9 +344,209 @@ app.patch(
         message: "Failed to update user status.",
       });
     }
-  }
+  },
 );
 
+// Get all menu items (search + filter)
+app.get("/api/admin/menu-items", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { search = "", status = "all", category = "all" } = req.query;
+
+    const query = {};
+
+    if (status !== "all") {
+      query.status = status;
+    }
+
+    if (category !== "all") {
+      query.category = category;
+    }
+
+    if (search) {
+      const safeSearch = escapeRegex(search);
+
+      query.$or = [
+        { itemName: { $regex: safeSearch, $options: "i" } },
+        { category: { $regex: safeSearch, $options: "i" } },
+        { location: { $regex: safeSearch, $options: "i" } },
+      ];
+    }
+
+    const result = await menuItems
+      .find(query)
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.send({
+      success: true,
+      items: result,
+    });
+  } catch (error) {
+    console.error("Get admin menu items error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to load menu items.",
+    });
+  }
+});
+
+//Approve or reject a menu item
+app.patch(
+  "/api/admin/menu-items/:id/status",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          success: false,
+          message: "Invalid menu item ID.",
+        });
+      }
+
+      if (!["approved", "rejected"].includes(status)) {
+        return res.status(400).send({
+          success: false,
+          message: "Invalid status.",
+        });
+      }
+
+      const result = await menuItems.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            status,
+            updatedAt: new Date(),
+          },
+        },
+      );
+
+      if (!result.matchedCount) {
+        return res.status(404).send({
+          success: false,
+          message: "Menu item not found.",
+        });
+      }
+
+      res.send({
+        success: true,
+        message: `Menu item ${status} successfully.`,
+      });
+    } catch (error) {
+      console.error("Update menu status error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to update menu status.",
+      });
+    }
+  },
+);
+
+//Activate or deactivate an approved menu item
+app.patch(
+  "/api/admin/menu-items/:id/active",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { isActive } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          success: false,
+          message: "Invalid menu item ID.",
+        });
+      }
+
+      if (typeof isActive !== "boolean") {
+        return res.status(400).send({
+          success: false,
+          message: "isActive must be true or false.",
+        });
+      }
+
+      const result = await menuItems.updateOne(
+        {
+          _id: new ObjectId(id),
+          status: "approved",
+        },
+        {
+          $set: {
+            isActive,
+            updatedAt: new Date(),
+          },
+        },
+      );
+
+      if (!result.matchedCount) {
+        return res.status(404).send({
+          success: false,
+          message: "Approved menu item not found.",
+        });
+      }
+
+      res.send({
+        success: true,
+        message: `Menu item ${isActive ? "activated" : "deactivated"} successfully.`,
+      });
+    } catch (error) {
+      console.error("Update menu active status error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to update menu item.",
+      });
+    }
+  },
+);
+
+// Delete a menu item
+app.delete(
+  "/api/admin/menu-items/:id",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          success: false,
+          message: "Invalid menu item ID.",
+        });
+      }
+
+      const result = await menuItems.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!result.deletedCount) {
+        return res.status(404).send({
+          success: false,
+          message: "Menu item not found.",
+        });
+      }
+
+      res.send({
+        success: true,
+        message: "Menu item deleted successfully.",
+      });
+    } catch (error) {
+      console.error("Delete menu item error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to delete menu item.",
+      });
+    }
+  },
+);
 
 const toObjectId = (id) => {
   if (!id) return null;
@@ -556,16 +740,13 @@ app.post(
       const vendorId = String(req.user._id);
       const vendorEmail = req.user.email;
 
-      if (
-        req.user.subscriptionPlan?.toLowerCase() === "premium"
-      ) {
+      if (req.user.subscriptionPlan?.toLowerCase() === "premium") {
         return res.status(400).send({
           success: false,
           message: "You already have a Premium subscription.",
         });
       }
 
-   
       if (!process.env.STRIPE_PREMIUM_PRICE_ID) {
         return res.status(500).send({
           success: false,
@@ -573,7 +754,6 @@ app.post(
         });
       }
 
-    
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
 
@@ -619,10 +799,8 @@ app.post(
         message: "Failed to create Stripe checkout session.",
       });
     }
-  }
+  },
 );
-
-
 
 // Get logged-in vendor subscription information
 app.get(
@@ -646,9 +824,8 @@ app.get(
         message: "Failed to load subscription information.",
       });
     }
-  }
+  },
 );
-
 
 // vendor-----------------------------------------------------
 app.post(
@@ -1458,7 +1635,6 @@ app.post(
   },
 );
 
-
 // Cancel customer's pending order
 app.patch(
   "/api/customer/orders/:id/cancel",
@@ -1466,19 +1642,19 @@ app.patch(
   verifyCustomer,
   async (req, res) => {
     try {
-      const { id } = req.params
+      const { id } = req.params;
 
       // 1. Validate order ID
       if (!ObjectId.isValid(id)) {
         return res.status(400).send({
           success: false,
           message: "Invalid order ID.",
-        })
+        });
       }
 
-      const customerId = String(req.user._id)
+      const customerId = String(req.user._id);
 
-      const customerFilter = getCustomerOrderFilter(customerId)
+      const customerFilter = getCustomerOrderFilter(customerId);
 
       const result = await orders.updateOne(
         {
@@ -1498,33 +1674,30 @@ app.patch(
             updatedAt: new Date(),
           },
         },
-      )
+      );
 
-      
       if (result.matchedCount === 0) {
         return res.status(404).send({
           success: false,
           message:
             "Order not found, does not belong to you, or is no longer pending.",
-        })
+        });
       }
 
-    
       return res.send({
         success: true,
         message: "Your order has been cancelled successfully.",
-      })
+      });
     } catch (error) {
-      console.error("Cancel customer order error:", error)
+      console.error("Cancel customer order error:", error);
 
       return res.status(500).send({
         success: false,
         message: "Failed to cancel order.",
-      })
+      });
     }
   },
-)
-
+);
 
 //listen -----------------------------------------------------------------------------------
 app.listen(port, () => {
