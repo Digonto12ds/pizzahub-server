@@ -209,11 +209,11 @@ const populateCustomerOrder = async (order) => {
     item: item
       ? {
           _id: String(item._id),
-          name: item.name || item.title,
-          image: item.image,
+          itemName: item.itemName,
+          images: item.images || [],
           price: item.price,
           category: item.category,
-          description: item.description,
+          description: item.description || "",
         }
       : order.item || null,
 
@@ -1023,7 +1023,6 @@ app.post(
     try {
       const { menuItemId, quantity, deliveryAddress, deliveryDate } = req.body;
 
-      
       if (!menuItemId || !quantity || !deliveryAddress || !deliveryDate) {
         return res.status(400).send({
           success: false,
@@ -1031,7 +1030,6 @@ app.post(
         });
       }
 
-      
       if (!ObjectId.isValid(menuItemId)) {
         return res.status(400).send({
           success: false,
@@ -1039,7 +1037,6 @@ app.post(
         });
       }
 
-      
       const orderQuantity = Number(quantity);
 
       if (
@@ -1053,7 +1050,6 @@ app.post(
         });
       }
 
-      
       if (
         typeof deliveryAddress !== "string" ||
         deliveryAddress.trim().length < 10
@@ -1064,7 +1060,6 @@ app.post(
         });
       }
 
-      
       if (
         typeof deliveryDate !== "string" ||
         !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate) ||
@@ -1076,7 +1071,6 @@ app.post(
         });
       }
 
-      
       const menuItem = await menuItems.findOne({
         _id: new ObjectId(menuItemId),
         status: "approved",
@@ -1090,10 +1084,8 @@ app.post(
         });
       }
 
-     
       const totalPrice = menuItem.price * orderQuantity;
 
-      
       const newOrder = {
         customerId: String(req.user._id),
         vendorId: String(menuItem.vendorId),
@@ -1123,7 +1115,6 @@ app.post(
         updatedAt: new Date(),
       };
 
-      
       const result = await orders.insertOne(newOrder);
 
       return res.status(201).send({
@@ -1144,6 +1135,74 @@ app.post(
     }
   },
 );
+
+
+// Cancel customer's pending order
+app.patch(
+  "/api/customer/orders/:id/cancel",
+  verifyToken,
+  verifyCustomer,
+  async (req, res) => {
+    try {
+      const { id } = req.params
+
+      // 1. Validate order ID
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          success: false,
+          message: "Invalid order ID.",
+        })
+      }
+
+      const customerId = String(req.user._id)
+
+      const customerFilter = getCustomerOrderFilter(customerId)
+
+      const result = await orders.updateOne(
+        {
+          $and: [
+            { _id: new ObjectId(id) },
+            customerFilter,
+            {
+              status: {
+                $in: ["pending", "Pending", "PENDING"],
+              },
+            },
+          ],
+        },
+        {
+          $set: {
+            status: "cancelled",
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      
+      if (result.matchedCount === 0) {
+        return res.status(404).send({
+          success: false,
+          message:
+            "Order not found, does not belong to you, or is no longer pending.",
+        })
+      }
+
+    
+      return res.send({
+        success: true,
+        message: "Your order has been cancelled successfully.",
+      })
+    } catch (error) {
+      console.error("Cancel customer order error:", error)
+
+      return res.status(500).send({
+        success: false,
+        message: "Failed to cancel order.",
+      })
+    }
+  },
+)
+
 
 //listen -----------------------------------------------------------------------------------
 app.listen(port, () => {
