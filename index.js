@@ -932,6 +932,43 @@ app.get(
   }
 );
 
+// all customer order 
+app.get(
+  "/api/customer/orders",
+  verifyToken,
+  verifyCustomer,
+  async (req, res) => {
+    try {
+      const customerId = String(req.user._id);
+
+      const customerFilter = getCustomerOrderFilter(customerId);
+
+      const customerOrders = await orders
+        .find(customerFilter)
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      const populatedOrders = await Promise.all(
+        customerOrders.map((order) => populateCustomerOrder(order))
+      );
+
+      res.send({
+        success: true,
+        total: populatedOrders.length,
+        data: populatedOrders,
+      });
+    } catch (error) {
+      console.error("Customer orders error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to load customer orders.",
+      });
+    }
+  }
+);
+
+
 app.listen(port, () => {
   console.log(`PizzaHub server is running on port ${port}`);
 });
