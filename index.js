@@ -3,13 +3,16 @@ import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import multer from "multer";
 import "dotenv/config";
+import Stripe from "stripe";
+import createStripeWebhookRouter from "./stripeWebhook.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 //middleware
 app.use(cors());
-app.use(express.json());
+
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -47,6 +50,17 @@ const menuItems = database.collection("menuItems");
 const users = database.collection("user");
 const sessions = database.collection("session");
 const orders = database.collection("orders");
+
+app.use(
+  "/api/stripe",
+  createStripeWebhookRouter({
+    stripe,
+    users,
+  })
+);
+
+
+app.use(express.json());
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -327,6 +341,110 @@ app.get("/menu/:id", async (req, res) => {
     });
   }
 });
+
+// Create Stripe Checkout Session for Vendor Premium Subscription
+app.post(
+  "/api/vendor/create-checkout-session",
+  verifyToken,
+  verifyVendor,
+  async (req, res) => {
+    try {
+      const vendorId = String(req.user._id);
+      const vendorEmail = req.user.email;
+
+      if (
+        req.user.subscriptionPlan?.toLowerCase() === "premium"
+      ) {
+        return res.status(400).send({
+          success: false,
+          message: "You already have a Premium subscription.",
+        });
+      }
+
+   
+      if (!process.env.STRIPE_PREMIUM_PRICE_ID) {
+        return res.status(500).send({
+          success: false,
+          message: "Stripe Premium price is not configured.",
+        });
+      }
+
+    
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+
+        line_items: [
+          {
+            price: process.env.STRIPE_PREMIUM_PRICE_ID,
+            quantity: 1,
+          },
+        ],
+
+        customer_email: vendorEmail,
+
+        client_reference_id: vendorId,
+
+        success_url: `${process.env.CLIENT_URL}/vendor-dashboard/subscription?success=true&session_id={CHECKOUT_SESSION_ID}`,
+
+        cancel_url: `${process.env.CLIENT_URL}/vendor-dashboard/subscription?canceled=true`,
+
+        metadata: {
+          vendorId,
+          vendorEmail,
+          plan: "premium",
+        },
+
+        subscription_data: {
+          metadata: {
+            vendorId,
+            plan: "premium",
+          },
+        },
+      });
+
+      res.send({
+        success: true,
+        message: "Checkout session created successfully.",
+        url: session.url,
+      });
+    } catch (error) {
+      console.error("Stripe Checkout Error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to create Stripe checkout session.",
+      });
+    }
+  }
+);
+
+
+
+// Get logged-in vendor subscription information
+app.get(
+  "/api/vendor/subscription",
+  verifyToken,
+  verifyVendor,
+  async (req, res) => {
+    try {
+      res.send({
+        success: true,
+        subscriptionPlan: req.user.subscriptionPlan || "free",
+        subscriptionStatus: req.user.subscriptionStatus || "inactive",
+        subscriptionExpiresAt: req.user.subscriptionExpiresAt || null,
+        cancelAtPeriodEnd: req.user.cancelAtPeriodEnd || false,
+      });
+    } catch (error) {
+      console.error("Get subscription error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to load subscription information.",
+      });
+    }
+  }
+);
+
 
 // vendor-----------------------------------------------------
 app.post(
