@@ -626,6 +626,50 @@ app.patch(
   }
 );
 
+
+// Delete a menu item
+app.delete(
+  "/api/vendor/menu-items/:id",
+  verifyToken,
+  verifyVendor,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          message: "Invalid menu item ID.",
+        });
+      }
+
+      const vendorId = String(req.user._id);
+
+      const result = await menuItems.deleteOne({
+        _id: new ObjectId(id),
+        vendorId,
+      });
+
+      if (result.deletedCount === 0) {
+        return res.status(404).send({
+          message: "Menu item not found.",
+        });
+      }
+
+      res.send({
+        success: true,
+        message: "Menu item deleted successfully.",
+      });
+
+    } catch (error) {
+      console.error("Failed to delete menu item:", error);
+
+      res.status(500).send({
+        message: "Failed to delete menu item.",
+      });
+    }
+  }
+);
+
 // vendor dashboard overview
 app.get("/api/vendor/overview", verifyToken, verifyVendor, async (req, res) => {
   try {
@@ -674,6 +718,65 @@ app.get("/api/vendor/overview", verifyToken, verifyVendor, async (req, res) => {
     });
   }
 });
+
+//Get vendor orders
+app.get(
+  "/api/vendor/orders",
+  verifyToken,
+  verifyVendor,
+  async (req, res) => {
+    try {
+      const vendorId = String(req.user._id);
+
+      const vendorOrders = await orders
+        .find({ vendorId })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      // Attach customer and menu item information
+      const detailedOrders = await Promise.all(
+        vendorOrders.map(async (order) => {
+          const itemId = String(order.itemId);
+          const customerId = String(order.customerId);
+
+          const item = ObjectId.isValid(itemId)
+            ? await menuItems.findOne({ _id: new ObjectId(itemId) })
+            : await menuItems.findOne({ _id: itemId });
+
+          const customer = ObjectId.isValid(customerId)
+            ? await users.findOne({ _id: new ObjectId(customerId) })
+            : await users.findOne({ _id: customerId });
+
+          return {
+            ...order,
+            item: item
+              ? {
+                  itemName: item.itemName,
+                  images: item.images || [],
+                  price: item.price,
+                  category: item.category,
+                }
+              : null,
+            customer: customer
+              ? {
+                  name: customer.name,
+                  email: customer.email,
+                  image: customer.image || "",
+                }
+              : null,
+          };
+        })
+      );
+
+      res.send(detailedOrders);
+    } catch (error) {
+      console.error("Get vendor orders error:", error);
+      res.status(500).send({
+        message: "Failed to load customer orders.",
+      });
+    }
+  }
+);
 
 app.listen(port, () => {
   console.log(`PizzaHub server is running on port ${port}`);
