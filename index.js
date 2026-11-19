@@ -50,6 +50,7 @@ const menuItems = database.collection("menuItems");
 const users = database.collection("user");
 const sessions = database.collection("session");
 const orders = database.collection("orders");
+const transactions = database.collection("transactions");
 
 app.use(
   "/api/stripe",
@@ -172,6 +173,52 @@ const verifyAdmin = (req, res, next) => {
 };
 
 //Admin-----------------------------------------------------
+
+//admin overview
+app.get(
+  "/api/admin/overview",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const [
+        totalUsers,
+        totalVendors,
+        totalCustomers,
+        totalMenuItems,
+        pendingMenuItems,
+        totalTransactions,
+      ] = await Promise.all([
+        users.countDocuments(),
+        users.countDocuments({ role: "vendor" }),
+        users.countDocuments({ role: "customer" }),
+        menuItems.countDocuments(),
+        menuItems.countDocuments({ status: "pending" }),
+        transactions.countDocuments(),
+      ]);
+
+      res.send({
+        success: true,
+        stats: {
+          totalUsers,
+          totalVendors,
+          totalCustomers,
+          totalMenuItems,
+          pendingMenuItems,
+          totalTransactions,
+        },
+      });
+    } catch (error) {
+      console.error("Admin overview error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to load dashboard statistics.",
+      });
+    }
+  }
+);
+
 
 // Get all users
 app.get(
