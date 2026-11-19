@@ -160,6 +160,163 @@ const verifyCustomer = (req, res, next) => {
   next();
 };
 
+const verifyAdmin = (req, res, next) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).send({
+      success: false,
+      message: "Forbidden. Admin access only.",
+    });
+  }
+
+  next();
+};
+
+//Admin-----------------------------------------------------
+
+// Get all users
+app.get(
+  "/api/admin/users",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const { search = "", role = "all" } = req.query;
+
+      const query = {};
+
+      // Search by name or email
+      if (search.trim()) {
+        const searchRegex = {
+          $regex: escapeRegex(search.trim()),
+          $options: "i",
+        };
+
+        query.$or = [
+          { name: searchRegex },
+          { email: searchRegex },
+        ];
+      }
+
+      // Filter by role
+      if (role !== "all") {
+        query.role = role;
+      }
+
+      const result = await users
+        .find(query, {
+          projection: {
+            name: 1,
+            email: 1,
+            image: 1,
+            role: 1,
+            isBlocked: 1,
+            businessName: 1,
+            subscriptionPlan: 1,
+            createdAt: 1,
+          },
+        })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send({
+        success: true,
+        total: result.length,
+        users: result.map((user) => ({
+          ...user,
+          _id: String(user._id),
+          isBlocked: Boolean(user.isBlocked),
+        })),
+      });
+    } catch (error) {
+      console.error("Get users error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to load users.",
+      });
+    }
+  }
+);
+
+// Block or Unblock a user
+app.patch(
+  "/api/admin/users/:id/status",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { isBlocked } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          success: false,
+          message: "Invalid user ID.",
+        });
+      }
+
+      if (typeof isBlocked !== "boolean") {
+        return res.status(400).send({
+          success: false,
+          message: "isBlocked must be true or false.",
+        });
+      }
+
+      // Admin cannot block their own account
+      if (String(req.user._id) === id && isBlocked) {
+        return res.status(400).send({
+          success: false,
+          message: "You cannot block your own account.",
+        });
+      }
+
+      const targetUser = await users.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!targetUser) {
+        return res.status(404).send({
+          success: false,
+          message: "User not found.",
+        });
+      }
+
+      // Do not allow blocking another admin
+      if (targetUser.role === "admin" && isBlocked) {
+        return res.status(403).send({
+          success: false,
+          message: "Admin accounts cannot be blocked.",
+        });
+      }
+
+      await users.updateOne(
+        { _id: targetUser._id },
+        {
+          $set: {
+            isBlocked,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      res.send({
+        success: true,
+        message: isBlocked
+          ? "User blocked successfully."
+          : "User unblocked successfully.",
+      });
+    } catch (error) {
+      console.error("Update user status error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to update user status.",
+      });
+    }
+  }
+);
+
+
 const toObjectId = (id) => {
   if (!id) return null;
 
