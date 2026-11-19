@@ -897,23 +897,21 @@ app.get(
 
       const customerFilter = getCustomerOrderFilter(customerId);
 
-      const customerOrders = await orders
-        .find(customerFilter)
-        .toArray();
+      const customerOrders = await orders.find(customerFilter).toArray();
 
       const overview = {
         totalOrders: customerOrders.length,
 
         pendingOrders: customerOrders.filter(
-          (order) => normalizeOrderStatus(order.status) === "pending"
+          (order) => normalizeOrderStatus(order.status) === "pending",
         ).length,
 
         acceptedOrders: customerOrders.filter(
-          (order) => normalizeOrderStatus(order.status) === "accepted"
+          (order) => normalizeOrderStatus(order.status) === "accepted",
         ).length,
 
         rejectedOrders: customerOrders.filter(
-          (order) => normalizeOrderStatus(order.status) === "rejected"
+          (order) => normalizeOrderStatus(order.status) === "rejected",
         ).length,
       };
 
@@ -929,10 +927,10 @@ app.get(
         message: "Failed to load customer overview.",
       });
     }
-  }
+  },
 );
 
-// all customer order 
+// all customer order
 app.get(
   "/api/customer/orders",
   verifyToken,
@@ -949,7 +947,7 @@ app.get(
         .toArray();
 
       const populatedOrders = await Promise.all(
-        customerOrders.map((order) => populateCustomerOrder(order))
+        customerOrders.map((order) => populateCustomerOrder(order)),
       );
 
       res.send({
@@ -965,9 +963,8 @@ app.get(
         message: "Failed to load customer orders.",
       });
     }
-  }
+  },
 );
-
 
 //Single cutomer api
 app.get(
@@ -990,10 +987,7 @@ app.get(
       const customerFilter = getCustomerOrderFilter(customerId);
 
       const order = await orders.findOne({
-        $and: [
-          { _id: new ObjectId(id) },
-          customerFilter,
-        ],
+        $and: [{ _id: new ObjectId(id) }, customerFilter],
       });
 
       if (!order) {
@@ -1017,9 +1011,139 @@ app.get(
         message: "Failed to load order details.",
       });
     }
-  }
+  },
 );
 
+// customer order
+app.post(
+  "/api/customer/orders",
+  verifyToken,
+  verifyCustomer,
+  async (req, res) => {
+    try {
+      const { menuItemId, quantity, deliveryAddress, deliveryDate } = req.body;
+
+      
+      if (!menuItemId || !quantity || !deliveryAddress || !deliveryDate) {
+        return res.status(400).send({
+          success: false,
+          message: "All fields are required.",
+        });
+      }
+
+      
+      if (!ObjectId.isValid(menuItemId)) {
+        return res.status(400).send({
+          success: false,
+          message: "Invalid menu item ID.",
+        });
+      }
+
+      
+      const orderQuantity = Number(quantity);
+
+      if (
+        !Number.isInteger(orderQuantity) ||
+        orderQuantity < 1 ||
+        orderQuantity > 10
+      ) {
+        return res.status(400).send({
+          success: false,
+          message: "Quantity must be between 1 and 10.",
+        });
+      }
+
+      
+      if (
+        typeof deliveryAddress !== "string" ||
+        deliveryAddress.trim().length < 10
+      ) {
+        return res.status(400).send({
+          success: false,
+          message: "Please provide a valid delivery address.",
+        });
+      }
+
+      
+      if (
+        typeof deliveryDate !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate) ||
+        Number.isNaN(Date.parse(`${deliveryDate}T00:00:00`))
+      ) {
+        return res.status(400).send({
+          success: false,
+          message: "Please provide a valid delivery date.",
+        });
+      }
+
+      
+      const menuItem = await menuItems.findOne({
+        _id: new ObjectId(menuItemId),
+        status: "approved",
+        isActive: true,
+      });
+
+      if (!menuItem) {
+        return res.status(404).send({
+          success: false,
+          message: "This menu item is unavailable.",
+        });
+      }
+
+     
+      const totalPrice = menuItem.price * orderQuantity;
+
+      
+      const newOrder = {
+        customerId: String(req.user._id),
+        vendorId: String(menuItem.vendorId),
+        itemId: String(menuItem._id),
+
+        item: {
+          itemName: menuItem.itemName,
+          images: menuItem.images || [],
+          price: menuItem.price,
+          category: menuItem.category,
+        },
+
+        vendor: {
+          name: menuItem.vendor?.name || "",
+          businessName: menuItem.vendor?.businessName || "",
+          image: menuItem.vendor?.image || "",
+        },
+
+        quantity: orderQuantity,
+        totalPrice,
+
+        deliveryAddress: deliveryAddress.trim(),
+        deliveryDate,
+
+        status: "pending",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      
+      const result = await orders.insertOne(newOrder);
+
+      return res.status(201).send({
+        success: true,
+        message: "Your order has been placed successfully!",
+        data: {
+          _id: result.insertedId,
+          ...newOrder,
+        },
+      });
+    } catch (error) {
+      console.error("Create customer order error:", error);
+
+      return res.status(500).send({
+        success: false,
+        message: "Failed to place order.",
+      });
+    }
+  },
+);
 
 //listen -----------------------------------------------------------------------------------
 app.listen(port, () => {
