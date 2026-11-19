@@ -969,6 +969,59 @@ app.get(
 );
 
 
+//Single cutomer api
+app.get(
+  "/api/customer/orders/:id",
+  verifyToken,
+  verifyCustomer,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          success: false,
+          message: "Invalid order ID.",
+        });
+      }
+
+      const customerId = String(req.user._id);
+
+      const customerFilter = getCustomerOrderFilter(customerId);
+
+      const order = await orders.findOne({
+        $and: [
+          { _id: new ObjectId(id) },
+          customerFilter,
+        ],
+      });
+
+      if (!order) {
+        return res.status(404).send({
+          success: false,
+          message: "Order not found.",
+        });
+      }
+
+      const populatedOrder = await populateCustomerOrder(order);
+
+      res.send({
+        success: true,
+        data: populatedOrder,
+      });
+    } catch (error) {
+      console.error("Customer order details error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to load order details.",
+      });
+    }
+  }
+);
+
+
+//listen -----------------------------------------------------------------------------------
 app.listen(port, () => {
   console.log(`PizzaHub server is running on port ${port}`);
 });
