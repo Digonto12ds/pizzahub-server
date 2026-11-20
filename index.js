@@ -348,7 +348,7 @@ app.patch(
   },
 );
 
-// Get all menu items 
+// Get all menu items
 app.get("/api/admin/menu-items", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { search = "", status = "all", category = "all" } = req.query;
@@ -549,111 +549,107 @@ app.delete(
   },
 );
 
-//get all transactions 
-app.get("/api/admin/transactions", verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    const transactionDocs = await transactions
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
+//get all transactions
+app.get(
+  "/api/admin/transactions",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const transactionDocs = await transactions
+        .find({})
+        .sort({ createdAt: -1 })
+        .toArray();
 
-    // Get vendor IDs from transactions
-    const vendorIds = transactionDocs
-      .map((transaction) => {
-        try {
-          return new ObjectId(String(transaction.vendorId));
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean);
+      // Get vendor IDs from transactions
+      const vendorIds = transactionDocs
+        .map((transaction) => {
+          try {
+            return new ObjectId(String(transaction.vendorId));
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
 
-    // Fetch vendor information
-    const vendorDocs = await users
-      .find(
-        { _id: { $in: vendorIds } },
-        {
-          projection: {
-            name: 1,
-            email: 1,
-            image: 1,
-            businessName: 1,
+      // Fetch vendor information
+      const vendorDocs = await users
+        .find(
+          { _id: { $in: vendorIds } },
+          {
+            projection: {
+              name: 1,
+              email: 1,
+              image: 1,
+              businessName: 1,
+            },
           },
-        }
-      )
-      .toArray();
-
-    
-    const vendorMap = new Map(
-      vendorDocs.map((vendor) => [vendor._id.toString(), vendor])
-    );
-
-   
-    const transactionList = transactionDocs.map((transaction) => {
-      const vendor = vendorMap.get(String(transaction.vendorId));
-
-      return {
-        ...transaction,
-        _id: transaction._id.toString(),
-        vendor: vendor
-          ? {
-              _id: vendor._id.toString(),
-              name: vendor.name || "Unknown Vendor",
-              email: vendor.email || "",
-              image: vendor.image || "",
-              businessName: vendor.businessName || "",
-            }
-          : null,
-      };
-    });
-
-    
-    const successfulStatuses = ["success", "succeeded", "paid", "completed"];
-
-    const stats = {
-      totalTransactions: transactionList.length,
-
-      successfulPayments: transactionList.filter((item) =>
-        successfulStatuses.includes(
-          String(item.status).toLowerCase()
         )
-      ).length,
+        .toArray();
 
-      failedPayments: transactionList.filter(
-        (item) => String(item.status).toLowerCase() === "failed"
-      ).length,
+      const vendorMap = new Map(
+        vendorDocs.map((vendor) => [vendor._id.toString(), vendor]),
+      );
 
-      pendingPayments: transactionList.filter(
-        (item) => String(item.status).toLowerCase() === "pending"
-      ).length,
+      const transactionList = transactionDocs.map((transaction) => {
+        const vendor = vendorMap.get(String(transaction.vendorId));
 
-      totalRevenue: transactionList.reduce((total, item) => {
-        if (
-          successfulStatuses.includes(
-            String(item.status).toLowerCase()
-          )
-        ) {
-          return total + Number(item.amount || 0);
-        }
+        return {
+          ...transaction,
+          _id: transaction._id.toString(),
+          vendor: vendor
+            ? {
+                _id: vendor._id.toString(),
+                name: vendor.name || "Unknown Vendor",
+                email: vendor.email || "",
+                image: vendor.image || "",
+                businessName: vendor.businessName || "",
+              }
+            : null,
+        };
+      });
 
-        return total;
-      }, 0),
-    };
+      const successfulStatuses = ["success", "succeeded", "paid", "completed"];
 
-    res.status(200).send({
-      success: true,
-      stats,
-      transactions: transactionList,
-    });
-  } catch (error) {
-    console.error("Admin transactions error:", error);
+      const stats = {
+        totalTransactions: transactionList.length,
 
-    res.status(500).send({
-      success: false,
-      message: "Failed to fetch transactions.",
-    });
-  }
-});
+        successfulPayments: transactionList.filter((item) =>
+          successfulStatuses.includes(String(item.status).toLowerCase()),
+        ).length,
+
+        failedPayments: transactionList.filter(
+          (item) => String(item.status).toLowerCase() === "failed",
+        ).length,
+
+        pendingPayments: transactionList.filter(
+          (item) => String(item.status).toLowerCase() === "pending",
+        ).length,
+
+        totalRevenue: transactionList.reduce((total, item) => {
+          if (successfulStatuses.includes(String(item.status).toLowerCase())) {
+            return total + Number(item.amount || 0);
+          }
+
+          return total;
+        }, 0),
+      };
+
+      res.status(200).send({
+        success: true,
+        stats,
+        transactions: transactionList,
+      });
+    } catch (error) {
+      console.error("Admin transactions error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to fetch transactions.",
+      });
+    }
+  },
+);
 
 const toObjectId = (id) => {
   if (!id) return null;
@@ -1404,6 +1400,12 @@ app.get("/api/vendor/orders", verifyToken, verifyVendor, async (req, res) => {
 
         return {
           ...order,
+
+          // Convert database status to frontend format
+          status: normalizeOrderStatus(order.status).replace(/^\w/, (char) =>
+            char.toUpperCase(),
+          ),
+
           item: item
             ? {
                 itemName: item.itemName,
@@ -1412,6 +1414,7 @@ app.get("/api/vendor/orders", verifyToken, verifyVendor, async (req, res) => {
                 category: item.category,
               }
             : null,
+
           customer: customer
             ? {
                 name: customer.name,
@@ -1464,7 +1467,7 @@ app.patch(
         },
         {
           $set: {
-            status,
+            status: status.toLowerCase(),
             updatedAt: new Date(),
           },
         },
@@ -1801,6 +1804,92 @@ app.patch(
       return res.status(500).send({
         success: false,
         message: "Failed to cancel order.",
+      });
+    }
+  },
+);
+
+//Update user profile
+app.patch(
+  "/api/profile",
+  verifyToken,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const { name } = req.body;
+
+      if (typeof name !== "string" || !name.trim()) {
+        return res.status(400).send({
+          success: false,
+          message: "Name is required.",
+        });
+      }
+
+      // Prepare profile update
+      const updateData = {
+        name: name.trim(),
+        updatedAt: new Date(),
+      };
+
+      if (req.file) {
+        if (!process.env.IMGBB_API_KEY) {
+          return res.status(500).send({
+            success: false,
+            message: "ImgBB API key is not configured.",
+          });
+        }
+
+        const imageBase64 = req.file.buffer.toString("base64");
+
+        const formData = new URLSearchParams();
+        formData.append("image", imageBase64);
+        formData.append("name", name.trim());
+
+        const imageResponse = await fetch(
+          `https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API_KEY}`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
+
+        const imageResult = await imageResponse.json();
+
+        if (!imageResponse.ok || !imageResult.success) {
+          return res.status(500).send({
+            success: false,
+            message: "Failed to upload profile image.",
+          });
+        }
+
+        updateData.image = imageResult.data.url;
+      }
+
+      await users.updateOne({ _id: req.user._id }, { $set: updateData });
+
+      const updatedUser = await users.findOne(
+        { _id: req.user._id },
+        {
+          projection: {
+            name: 1,
+            email: 1,
+            image: 1,
+            role: 1,
+          },
+        },
+      );
+
+      res.send({
+        success: true,
+        message: "Profile updated successfully.",
+        user: updatedUser,
+      });
+    } catch (error) {
+      console.error("Profile update error:", error);
+
+      res.status(500).send({
+        success: false,
+        message: "Failed to update profile.",
       });
     }
   },
